@@ -1,0 +1,572 @@
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import { 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line
+} from 'recharts';
+import { 
+  Package, AlertTriangle, TrendingUp, TrendingDown,
+  Plus, Search, Upload, Download, RefreshCw
+} from 'lucide-react';
+import toast, { Toaster } from 'react-hot-toast';
+import { useDropzone } from 'react-dropzone';
+
+// Configuração da API
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+interface Product {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  price: number;
+  stock_current: number;
+  stock_min: number;
+  stock_max: number;
+  unit: string;
+  created_at: string;
+}
+
+interface DashboardData {
+  total_products: number;
+  low_stock_count: number;
+  total_value: number;
+  categories: Record<string, { count: number; value: number }>;
+  insights: string[];
+  recommendations: string[];
+}
+
+export default function Dashboard() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [lowStock, setLowStock] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [newProduct, setNewProduct] = useState({
+    name: '',
+    description: '',
+    category: '',
+    price: 0,
+    stock_current: 0,
+    stock_min: 5,
+    stock_max: 100,
+    unit: 'unidade'
+  });
+
+  // Carregamento de dados
+  const loadDashboardData = async () => {
+    try {
+      const [productsRes, dashboardRes, lowStockRes] = await Promise.all([
+        axios.get(`${API_BASE}/products/`),
+        axios.get(`${API_BASE}/analytics/dashboard/`),
+        axios.get(`${API_BASE}/stock/low/`)
+      ]);
+      
+      setProducts(productsRes.data);
+      setDashboardData(dashboardRes.data);
+      setLowStock(lowStockRes.data);
+      setLoading(false);
+    } catch (error) {
+      console.error('Erro ao carregar dados:', error);
+      toast.error('Erro ao carregar dados do dashboard');
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  // Criar produto
+  const handleCreateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await axios.post(`${API_BASE}/products/`, newProduct);
+      toast.success('Produto criado com sucesso!');
+      setNewProduct({
+        name: '',
+        description: '',
+        category: '',
+        price: 0,
+        stock_current: 0,
+        stock_min: 5,
+        stock_max: 100,
+        unit: 'unidade'
+      });
+      loadDashboardData();
+    } catch (error) {
+      toast.error('Erro ao criar produto');
+    }
+  };
+
+  // Upload de texto
+  const onDrop = async (acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (file) {
+      const text = await file.text();
+      try {
+        const response = await axios.post(`${API_BASE}/text/to-product/`, { text });
+        toast.success('Produto criado a partir do texto!');
+        loadDashboardData();
+      } catch (error) {
+        toast.error('Erro ao processar texto');
+      }
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'text/plain': ['.txt'] }
+  });
+
+  // Dados para gráficos
+  const categoryData = dashboardData ? Object.entries(dashboardData.categories).map(([name, data]) => ({
+    name,
+    count: data.count,
+    value: data.value
+  })) : [];
+
+  const stockLevelData = products.map(p => ({
+    name: p.name.substring(0, 10),
+    atual: p.stock_current,
+    minimo: p.stock_min,
+    maximo: p.stock_max
+  }));
+
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <RefreshCw className="h-6 w-6 animate-spin" />
+          <span>Carregando...</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Toaster position="top-right" />
+      
+      {/* Header */}
+      <header className="bg-white shadow">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-6">
+            <h1 className="text-3xl font-bold text-gray-900">
+              Sistema de Controle de Estoque
+            </h1>
+            <button
+              onClick={loadDashboardData}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              <RefreshCw className="h-4 w-4" />
+              <span>Atualizar</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Navigation */}
+      <nav className="bg-white shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex space-x-8">
+            {['dashboard', 'produtos', 'adicionar', 'upload'].map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`py-4 px-1 border-b-2 font-medium text-sm capitalize ${
+                  activeTab === tab
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+        </div>
+      </nav>
+
+      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+        {/* Dashboard Tab */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-white p-6 rounded-lg shadow">
+                <div className="flex items-center">
+                  <Package className="h-8 w-8 text-blue-500" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Total de Produtos</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {dashboardData?.total_products || 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow">
+                <div className="flex items-center">
+                  <AlertTriangle className="h-8 w-8 text-red-500" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Estoque Baixo</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {dashboardData?.low_stock_count || 0}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow">
+                <div className="flex items-center">
+                  <TrendingUp className="h-8 w-8 text-green-500" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Valor Total</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      R$ {dashboardData?.total_value?.toLocaleString() || '0'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-lg shadow">
+                <div className="flex items-center">
+                  <Package className="h-8 w-8 text-purple-500" />
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-500">Categorias</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {Object.keys(dashboardData?.categories || {}).length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Category Distribution */}
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  Distribuição por Categoria
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={categoryData}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="count"
+                    >
+                      {categoryData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Stock Levels */}
+              <div className="bg-white p-6 rounded-lg shadow">
+                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                  Níveis de Estoque
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={stockLevelData.slice(0, 10)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="atual" fill="#8884d8" name="Atual" />
+                    <Bar dataKey="minimo" fill="#ff7300" name="Mínimo" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* AI Insights */}
+            {dashboardData?.insights && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    Insights da IA
+                  </h3>
+                  <ul className="space-y-2">
+                    {dashboardData.insights.map((insight, index) => (
+                      <li key={index} className="flex items-start">
+                        <TrendingUp className="h-5 w-5 text-blue-500 mt-0.5 mr-2" />
+                        <span className="text-gray-700">{insight}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <h3 className="text-lg font-medium text-gray-900 mb-4">
+                    Recomendações
+                  </h3>
+                  <ul className="space-y-2">
+                    {dashboardData.recommendations.map((rec, index) => (
+                      <li key={index} className="flex items-start">
+                        <AlertTriangle className="h-5 w-5 text-amber-500 mt-0.5 mr-2" />
+                        <span className="text-gray-700">{rec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Low Stock Alert */}
+            {lowStock.length > 0 && (
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <h3 className="text-lg font-medium text-red-800 mb-2">
+                  Produtos com Estoque Baixo
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {lowStock.map((item) => (
+                    <div key={item.id} className="bg-white p-3 rounded border">
+                      <h4 className="font-medium text-gray-900">{item.name}</h4>
+                      <p className="text-sm text-gray-600">
+                        Atual: {item.current} | Mínimo: {item.minimum}
+                      </p>
+                      <span className={`inline-block px-2 py-1 text-xs rounded ${
+                        item.urgency === 'alta' 
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {item.urgency}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Products Tab */}
+        {activeTab === 'produtos' && (
+          <div className="bg-white shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Lista de Produtos
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Produto
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Categoria
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Estoque
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Preço
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {products.map((product) => (
+                      <tr key={product.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div>
+                            <div className="text-sm font-medium text-gray-900">
+                              {product.name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {product.description}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {product.category}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {product.stock_current}/{product.stock_max} {product.unit}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          R$ {product.price.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
+                            product.stock_current <= product.stock_min
+                              ? 'bg-red-100 text-red-800'
+                              : product.stock_current <= product.stock_min * 1.5
+                              ? 'bg-yellow-100 text-yellow-800'
+                              : 'bg-green-100 text-green-800'
+                          }`}>
+                            {product.stock_current <= product.stock_min
+                              ? 'Baixo'
+                              : product.stock_current <= product.stock_min * 1.5
+                              ? 'Médio'
+                              : 'OK'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Add Product Tab */}
+        {activeTab === 'adicionar' && (
+          <div className="bg-white shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Adicionar Produto
+              </h3>
+              <form onSubmit={handleCreateProduct} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Nome</label>
+                  <input
+                    type="text"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Categoria</label>
+                  <input
+                    type="text"
+                    value={newProduct.category}
+                    onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Preço</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={newProduct.price}
+                    onChange={(e) => setNewProduct({...newProduct, price: parseFloat(e.target.value)})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Estoque Atual</label>
+                  <input
+                    type="number"
+                    value={newProduct.stock_current}
+                    onChange={(e) => setNewProduct({...newProduct, stock_current: parseInt(e.target.value)})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Estoque Mínimo</label>
+                  <input
+                    type="number"
+                    value={newProduct.stock_min}
+                    onChange={(e) => setNewProduct({...newProduct, stock_min: parseInt(e.target.value)})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Estoque Máximo</label>
+                  <input
+                    type="number"
+                    value={newProduct.stock_max}
+                    onChange={(e) => setNewProduct({...newProduct, stock_max: parseInt(e.target.value)})}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700">Descrição</label>
+                  <textarea
+                    value={newProduct.description}
+                    onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
+                    rows={3}
+                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Criar Produto
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Upload Tab */}
+        {activeTab === 'upload' && (
+          <div className="bg-white shadow rounded-lg">
+            <div className="px-4 py-5 sm:p-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">
+                Upload de Texto
+              </h3>
+              <div
+                {...getRootProps()}
+                className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
+                  isDragActive
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <input {...getInputProps()} />
+                <Upload className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <p className="text-lg font-medium text-gray-900 mb-2">
+                  {isDragActive
+                    ? 'Solte o arquivo aqui...'
+                    : 'Arraste um arquivo de texto ou clique para selecionar'}
+                </p>
+                <p className="text-sm text-gray-500">
+                  Suporta arquivos .txt com dados de produtos
+                </p>
+              </div>
+              
+              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-medium text-blue-900 mb-2">
+                  Como funciona o processamento:
+                </h4>
+                <ul className="text-sm text-blue-800 space-y-1">
+                  <li>• O sistema usa IA para extrair dados de produtos</li>
+                  <li>• Limpa automaticamente caracteres UTF-8 inválidos</li>
+                  <li>• Organiza informações nos campos corretos</li>
+                  <li>• Cria produtos automaticamente no sistema</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
